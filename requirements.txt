@@ -1,3 +1,4 @@
 flask>=3.0.0
-opendataloader-pdf
+opendataloader-pdf[hybrid]
 gunicorn
+requests

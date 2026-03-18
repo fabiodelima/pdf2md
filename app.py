@@ -1,22 +1,50 @@
 import os
 import uuid
-import json
+import threading
+import time
+import subprocess
 from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory, render_template
 
 app = Flask(__name__)
-
 UPLOAD_FOLDER = Path("uploads")
 OUTPUT_FOLDER = Path("output")
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER.mkdir(exist_ok=True)
+
+_hybrid_ready = False
+
+def _start_hybrid_server():
+    global _hybrid_ready
+    try:
+        import requests as req
+        proc = subprocess.Popen(
+            ["opendataloader-pdf-hybrid", "--port", "5002"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        print("⏳ Iniciando servidor híbrido (pode levar alguns minutos na primeira vez)...")
+        for _ in range(180):
+            try:
+                r = req.get("http://localhost:5002/health", timeout=1)
+                if r.status_code == 200:
+                    _hybrid_ready = True
+                    print("✅ Servidor híbrido pronto")
+                    return
+            except Exception:
+                pass
+            time.sleep(1)
+        print("⚠️ Servidor híbrido não iniciou a tempo")
+    except Exception as e:
+        print(f"⚠️ Erro ao iniciar servidor híbrido: {e}")
+
+threading.Thread(target=_start_hybrid_server, daemon=True).start()
 
 def check_opendataloader():
     try:
         import opendataloader_pdf
         return True, None
     except ImportError:
-        return False, "opendataloader-pdf não está instalado. Execute: pip install opendataloader-pdf"
+        return False, "opendataloader-pdf não está instalado"
 
 @app.route("/")
 def index():
@@ -25,7 +53,7 @@ def index():
 @app.route("/api/health")
 def health():
     ok, err = check_opendataloader()
-    return jsonify({"ok": ok, "error": err})
+    return jsonify({"ok": ok, "error": err, "hybrid_ready": _hybrid_ready})
 
 @app.route("/api/convert", methods=["POST"])
 def convert():
@@ -38,7 +66,10 @@ def convert():
     if not file.filename.lower().endswith(".pdf"):
         return jsonify({"error": "Apenas arquivos PDF são suportados"}), 400
 
-    mode = request.form.get("mode", "local")  # "local" ou "hybrid"
+    mode = request.form.get("mode", "local")
+
+    if mode == "hybrid" and not _hybrid_ready:
+        return jsonify({"error": "Servidor híbrido ainda está iniciando, aguarde alguns minutos e tente novamente"}), 503
 
     job_id = str(uuid.uuid4())[:8]
     input_path = UPLOAD_FOLDER / f"{job_id}.pdf"
@@ -52,6 +83,7 @@ def convert():
             "input_path": [str(input_path)],
             "output_dir": str(output_dir),
             "format": ["markdown"],
+            "use_struct_tree": True,
         }
 
         if mode == "hybrid":
@@ -67,15 +99,12 @@ def convert():
             return jsonify({"error": "Conversão concluída mas nenhum arquivo .md foi gerado"}), 500
 
         content = md_files[0].read_text(encoding="utf-8")
-        word_count = len(content.split())
-        line_count = content.count("\n")
-
         return jsonify({
             "ok": True,
             "markdown": content,
             "stats": {
-                "words": word_count,
-                "lines": line_count,
+                "words": len(content.split()),
+                "lines": content.count("\n"),
                 "filename": file.filename,
                 "mode": mode,
             }
