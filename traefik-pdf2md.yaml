@@ -1,0 +1,22 @@
+# Salvar em: /data/coolify/proxy/dynamic/pdf2md.yaml
+#
+# Substitua:
+#   - pdf2md.fabiollima.com  → seu subdomínio real
+#   - PDF2MD_CONTAINER_IP    → IP do container (veja: docker inspect pdf2md | grep IPAddress)
+#   - PDF2MD_CONTAINER_PORT  → 5000 (ou conforme o container)
+
+http:
+  routers:
+    pdf2md:
+      rule: "Host(`pdf2md.fabiollima.com`)"
+      entryPoints:
+        - https
+      tls:
+        certResolver: letsencrypt
+      service: pdf2md
+
+  services:
+    pdf2md:
+      loadBalancer:
+        servers:
+          - url: "http://PDF2MD_CONTAINER_IP:5000"
