@@ -55,7 +55,7 @@ def convert():
         }
 
         if mode == "hybrid":
-            convert_kwargs["mode"] = "hybrid"
+            convert_kwargs["mode"] = "docling-fast"
 
         opendataloader_pdf.convert(**convert_kwargs)
 
